@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AjaiaDocs</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- Tiptap via skypack/esm is tricky in UMD; use prosemirror directly via CDN -->
+<!-- We'll use a lightweight contenteditable approach with execCommand for formatting -->
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #ffffff;
+    --bg2: #f8f7f5;
+    --bg3: #f1f0ec;
+    --border: #e0ddd6;
+    --text: #1a1a1a;
+    --text2: #6b6a66;
+    --text3: #9b9a96;
+    --accent: #4f46e5;
+    --accent-bg: #eef2ff;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --sidebar-w: 280px;
+    --radius: 8px;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg2); color: var(--text); font-size: 15px; line-height: 1.6; }
+  button { cursor: pointer; border: none; background: none; font-family: inherit; font-size: 14px; }
+  input { font-family: inherit; font-size: 14px; }
+
+  /* ── Auth Screen ────────────────────────────────────────────── */
+  .auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg2); }
+  .auth-card { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 380px; }
+  .auth-logo { font-size: 22px; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+  .auth-sub { color: var(--text2); font-size: 14px; margin-bottom: 28px; }
+  .auth-label { font-size: 13px; font-weight: 500; color: var(--text2); display: block; margin-bottom: 6px; }
+  .auth-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; outline: none; transition: border-color .15s; }
+  .auth-input:focus { border-color: var(--accent); }
+  .auth-btn { width: 100%; padding: 11px; background: var(--accent); color: #fff; border-radius: var(--radius); font-size: 14px; font-weight: 500; margin-top: 16px; transition: opacity .15s; }
+  .auth-btn:hover { opacity: .88; }
+  .auth-hints { margin-top: 20px; padding: 12px; background: var(--bg2); border-radius: var(--radius); font-size: 12px; color: var(--text2); }
+  .auth-hints strong { display: block; margin-bottom: 4px; font-weight: 500; color: var(--text); }
+  .auth-error { color: var(--danger); font-size: 13px; margin-top: 10px; }
+
+  /* ── Layout ─────────────────────────────────────────────────── */
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── Sidebar ────────────────────────────────────────────────── */
+  .sidebar { width: var(--sidebar-w); background: var(--bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-logo { font-size: 16px; font-weight: 600; color: var(--accent); }
+  .sidebar-user { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .sidebar-actions { padding: 12px; display: flex; gap: 6px; border-bottom: 1px solid var(--border); }
+  .btn-new { flex: 1; padding: 8px 12px; background: var(--accent); color: #fff; border-radius: var(--radius); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; justify-content: center; transition: opacity .15s; }
+  .btn-new:hover { opacity: .88; }
+  .btn-upload { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text2); font-size: 13px; transition: background .15s; }
+  .btn-upload:hover { background: var(--bg2); }
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+  .doc-section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); padding: 8px 8px 4px; }
+  .doc-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius); cursor: pointer; transition: background .12s; position: relative; }
+  .doc-item:hover { background: var(--bg2); }
+  .doc-item.active { background: var(--accent-bg); }
+  .doc-item-icon { font-size: 15px; flex-shrink: 0; }
+  .doc-item-info { flex: 1; min-width: 0; }
+  .doc-item-title { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-item.active .doc-item-title { color: var(--accent); }
+  .doc-item-meta { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+  .badge-owned { background: #e0f2fe; color: #0369a1; }
+  .badge-shared { background: #fef3c7; color: #92400e; }
+  .sidebar-footer { padding: 12px; border-top: 1px solid var(--border); }
+  .btn-logout { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text2); font-size: 13px; transition: background .15s; }
+  .btn-logout:hover { background: var(--bg2); }
+
+  /* ── Main area ──────────────────────────────────────────────── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+  .topbar { padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  .doc-title-input { flex: 1; font-size: 18px; font-weight: 600; border: none; outline: none; background: transparent; color: var(--text); min-width: 0; }
+  .doc-title-input::placeholder { color: var(--text3); }
+  .topbar-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+  .save-status { font-size: 12px; color: var(--text3); }
+  .save-status.saving { color: var(--accent); }
+  .save-status.saved { color: var(--success); }
+  .btn-share { padding: 7px 14px; background: var(--accent); color: #fff; border-radius: var(--radius); font-size: 13px; font-weight: 500; transition: opacity .15s; }
+  .btn-share:hover { opacity: .88; }
+  .btn-share:disabled { opacity: .4; cursor: default; }
+  .btn-delete { padding: 7px 10px; color: var(--danger); border: 1px solid #fecaca; border-radius: var(--radius); font-size: 13px; transition: background .15s; }
+  .btn-delete:hover { background: #fef2f2; }
+
+  /* ── Toolbar ────────────────────────────────────────────────── */
+  .toolbar { padding: 6px 24px; border-bottom: 1px solid var(--border); display: flex; gap: 2px; align-items: center; flex-wrap: wrap; background: var(--bg); flex-shrink: 0; }
+  .tb-btn { padding: 5px 8px; border-radius: 5px; font-size: 13px; color: var(--text2); transition: background .1s, color .1s; min-width: 28px; text-align: center; display: flex; align-items: center; justify-content: center; }
+  .tb-btn:hover { background: var(--bg2); color: var(--text); }
+  .tb-btn.active { background: var(--accent-bg); color: var(--accent); }
+  .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+  .tb-select { font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text2); outline: none; cursor: pointer; }
+  .tb-select:focus { border-color: var(--accent); }
+
+  /* ── Editor ─────────────────────────────────────────────────── */
+  .editor-wrap { flex: 1; overflow-y: auto; padding: 32px 10vw; }
+  .editor { max-width: 760px; margin: 0 auto; min-height: 60vh; }
+  .editor-content { outline: none; font-size: 16px; line-height: 1.75; color: var(--text); caret-color: var(--accent); }
+  .editor-content:empty::before { content: 'Start writing…'; color: var(--text3); pointer-events: none; }
+  .editor-content h1 { font-size: 28px; font-weight: 700; margin: 24px 0 12px; line-height: 1.3; }
+  .editor-content h2 { font-size: 22px; font-weight: 600; margin: 20px 0 10px; line-height: 1.3; }
+  .editor-content h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; line-height: 1.3; }
+  .editor-content p { margin: 0 0 10px; }
+  .editor-content ul, .editor-content ol { margin: 0 0 12px; padding-left: 28px; }
+  .editor-content li { margin: 4px 0; }
+  .editor-content strong { font-weight: 700; }
+  .editor-content em { font-style: italic; }
+  .editor-content u { text-decoration: underline; }
+  .editor-content blockquote { border-left: 3px solid var(--accent); padding-left: 16px; color: var(--text2); margin: 12px 0; }
+
+  /* ── Empty state ────────────────────────────────────────────── */
+  .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text2); gap: 12px; }
+  .empty-icon { font-size: 48px; opacity: .4; }
+  .empty-title { font-size: 18px; font-weight: 500; color: var(--text); }
+  .empty-sub { font-size: 14px; color: var(--text2); }
+
+  /* ── Modal ──────────────────────────────────────────────────── */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--bg); border-radius: 12px; padding: 28px; width: 420px; max-width: 90vw; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+  .modal-title { font-size: 17px; font-weight: 600; margin-bottom: 16px; }
+  .modal-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; outline: none; margin-bottom: 12px; }
+  .modal-input:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .btn-cancel { padding: 8px 16px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text2); font-size: 13px; }
+  .btn-cancel:hover { background: var(--bg2); }
+  .btn-primary { padding: 8px 16px; background: var(--accent); color: #fff; border-radius: var(--radius); font-size: 13px; font-weight: 500; }
+  .btn-primary:hover { opacity: .88; }
+  .modal-error { font-size: 13px; color: var(--danger); margin-bottom: 8px; }
+  .share-list { margin: 12px 0; }
+  .share-item { display: flex; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 8px; }
+  .share-item:last-child { border-bottom: none; }
+  .share-item-info { flex: 1; }
+  .share-item-name { font-weight: 500; }
+  .share-item-email { color: var(--text2); font-size: 12px; }
+  .btn-revoke { font-size: 12px; color: var(--danger); border: 1px solid #fecaca; border-radius: 4px; padding: 2px 8px; }
+  .btn-revoke:hover { background: #fef2f2; }
+  .share-empty { color: var(--text3); font-size: 13px; }
+
+  /* ── Upload feedback ────────────────────────────────────────── */
+  .upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 20px; text-align: center; color: var(--text2); font-size: 13px; cursor: pointer; transition: border-color .15s; }
+  .upload-zone:hover { border-color: var(--accent); }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: var(--text); color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; z-index: 200; animation: slideup .2s ease; }
+  .toast.error { background: var(--danger); }
+  .toast.success { background: var(--success); }
+  @keyframes slideup { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const API = '';
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+async function api(path, opts = {}, token) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
+      ...opts.headers,
+    },
+    body: opts.body instanceof FormData ? opts.body : (opts.body ? JSON.stringify(opts.body) : undefined),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({ msg, type, onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 2800); return () => clearTimeout(t); }, []);
+  return <div className={`toast ${type}`}>{msg}</div>;
+}
+
+// ── Share Modal ───────────────────────────────────────────────────────────────
+function ShareModal({ doc, token, onClose, onUpdate }) {
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const shares = doc.shares || [];
+
+  async function handleShare() {
+    if (!email.trim()) return;
+    setLoading(true); setError('');
+    try {
+      const res = await api(`/api/documents/${doc.id}/share`, { method: 'POST', body: { email } }, token);
+      setEmail('');
+      onUpdate({ ...doc, shares: [...shares, res.sharedWith] });
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function handleRevoke(userId) {
+    try {
+      await api(`/api/documents/${doc.id}/share/${userId}`, { method: 'DELETE' }, token);
+      onUpdate({ ...doc, shares: shares.filter(s => s.id !== userId) });
+    } catch (e) { setError(e.message); }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">Share "{doc.title}"</div>
+        {shares.length > 0 ? (
+          <div className="share-list">
+            {shares.map(s => (
+              <div key={s.id} className="share-item">
+                <div className="share-item-info">
+                  <div className="share-item-name">{s.name}</div>
+                  <div className="share-item-email">{s.email}</div>
+                </div>
+                <button className="btn-revoke" onClick={() => handleRevoke(s.id)}>Remove</button>
+              </div>
+            ))}
+          </div>
+        ) : <p className="share-empty" style={{marginBottom:12}}>Not shared with anyone yet.</p>}
+        <input className="modal-input" placeholder="Share with email (e.g. bob@test.com)"
+          value={email} onChange={e => setEmail(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleShare()} />
+        {error && <div className="modal-error">{error}</div>}
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={onClose}>Done</button>
+          <button className="btn-primary" onClick={handleShare} disabled={loading}>
+            {loading ? 'Sharing…' : 'Share'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Toolbar ───────────────────────────────────────────────────────────────────
+function Toolbar({ editorRef, readOnly }) {
+  const exec = (cmd, val) => { document.execCommand(cmd, false, val); editorRef.current?.focus(); };
+  const [activeStates, setActiveStates] = useState({});
+
+  useEffect(() => {
+    function update() {
+      setActiveStates({
+        bold: document.queryCommandState('bold'),
+        italic: document.queryCommandState('italic'),
+        underline: document.queryCommandState('underline'),
+        insertUnorderedList: document.queryCommandState('insertUnorderedList'),
+        insertOrderedList: document.queryCommandState('insertOrderedList'),
+      });
+    }
+    document.addEventListener('selectionchange', update);
+    return () => document.removeEventListener('selectionchange', update);
+  }, []);
+
+  if (readOnly) return (
+    <div className="toolbar" style={{color:'var(--text3)',fontSize:13}}>
+      👁 View only — you can read but not edit this shared document
+    </div>
+  );
+
+  return (
+    <div className="toolbar">
+      <select className="tb-select" onChange={e => {
+        const v = e.target.value;
+        if (v === 'p') exec('formatBlock', '<p>');
+        else exec('formatBlock', `<${v}>`);
+        e.target.value = 'format';
+      }} defaultValue="format">
+        <option value="format" disabled>Paragraph</option>
+        <option value="p">Paragraph</option>
+        <option value="h1">Heading 1</option>
+        <option value="h2">Heading 2</option>
+        <option value="h3">Heading 3</option>
+      </select>
+      <div className="tb-sep" />
+      <button className={`tb-btn${activeStates.bold?' active':''}`} onMouseDown={e=>{e.preventDefault();exec('bold')}} title="Bold (Ctrl+B)"><b>B</b></button>
+      <button className={`tb-btn${activeStates.italic?' active':''}`} onMouseDown={e=>{e.preventDefault();exec('italic')}} title="Italic (Ctrl+I)"><i>I</i></button>
+      <button className={`tb-btn${activeStates.underline?' active':''}`} onMouseDown={e=>{e.preventDefault();exec('underline')}} title="Underline (Ctrl+U)"><u>U</u></button>
+      <div className="tb-sep" />
+      <button className={`tb-btn${activeStates.insertUnorderedList?' active':''}`} onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList')}} title="Bullet list">• List</button>
+      <button className={`tb-btn${activeStates.insertOrderedList?' active':''}`} onMouseDown={e=>{e.preventDefault();exec('insertOrderedList')}} title="Numbered list">1. List</button>
+      <div className="tb-sep" />
+      <button className="tb-btn" onMouseDown={e=>{e.preventDefault();exec('formatBlock','<blockquote>')}} title="Blockquote">" Quote</button>
+      <div className="tb-sep" />
+      <button className="tb-btn" onMouseDown={e=>{e.preventDefault();exec('undo')}} title="Undo">↩</button>
+      <button className="tb-btn" onMouseDown={e=>{e.preventDefault();exec('redo')}} title="Redo">↪</button>
+    </div>
+  );
+}
+
+// ── Editor ────────────────────────────────────────────────────────────────────
+function Editor({ doc, token, onDocUpdate, onToast }) {
+  const editorRef = useRef(null);
+  const saveTimer = useRef(null);
+  const [saveStatus, setSaveStatus] = useState('');
+  const [showShare, setShowShare] = useState(false);
+  const isOwner = doc.relation === 'owned';
+  const titleRef = useRef(null);
+
+  // Load content into editor
+  useEffect(() => {
+    if (!editorRef.current) return;
+    const html = docContentToHtml(doc.content);
+    editorRef.current.innerHTML = html;
+  }, [doc.id]);
+
+  // Load title
+  useEffect(() => {
+    if (titleRef.current) titleRef.current.value = doc.title;
+  }, [doc.id, doc.title]);
+
+  function docContentToHtml(content) {
+    if (!content) return '';
+    try {
+      const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+      if (parsed && parsed.type === 'doc') return tiptapToHtml(parsed);
+    } catch {}
+    return typeof content === 'string' ? content : '';
+  }
+
+  function tiptapToHtml(node) {
+    if (!node) return '';
+    if (node.type === 'doc') return (node.content || []).map(tiptapToHtml).join('');
+    if (node.type === 'text') {
+      let t = escHtml(node.text || '');
+      (node.marks || []).forEach(m => {
+        if (m.type === 'bold') t = `<strong>${t}</strong>`;
+        else if (m.type === 'italic') t = `<em>${t}</em>`;
+        else if (m.type === 'underline') t = `<u>${t}</u>`;
+      });
+      return t;
+    }
+    const inner = (node.content || []).map(tiptapToHtml).join('');
+    if (node.type === 'heading') return `<h${node.attrs?.level||1}>${inner}</h${node.attrs?.level||1}>`;
+    if (node.type === 'paragraph') return `<p>${inner || '<br>'}</p>`;
+    if (node.type === 'bulletList') return `<ul>${inner}</ul>`;
+    if (node.type === 'orderedList') return `<ol>${inner}</ol>`;
+    if (node.type === 'listItem') return `<li>${inner}</li>`;
+    if (node.type === 'blockquote') return `<blockquote>${inner}</blockquote>`;
+    return inner;
+  }
+
+  function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function scheduleSave() {
+    if (!isOwner) return;
+    setSaveStatus('saving');
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(saveDoc, 1200);
+  }
+
+  async function saveDoc() {
+    if (!isOwner || !editorRef.current) return;
+    const title = titleRef.current?.value || doc.title;
+    const content = editorRef.current.innerHTML;
+    try {
+      const updated = await api(`/api/documents/${doc.id}`, { method: 'PUT', body: { title, content } }, token);
+      onDocUpdate(updated);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(''), 2000);
+    } catch (e) {
+      setSaveStatus('');
+      onToast(e.message, 'error');
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm('Delete this document? This cannot be undone.')) return;
+    try {
+      await api(`/api/documents/${doc.id}`, { method: 'DELETE' }, token);
+      onDocUpdate(null, true);
+    } catch (e) { onToast(e.message, 'error'); }
+  }
+
+  return (
+    <>
+      <div className="topbar">
+        <input ref={titleRef} className="doc-title-input" placeholder="Untitled"
+          defaultValue={doc.title}
+          readOnly={!isOwner}
+          onChange={scheduleSave} />
+        <div className="topbar-actions">
+          <span className={`save-status ${saveStatus}`}>
+            {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? '✓ Saved' : ''}
+          </span>
+          {isOwner && (
+            <>
+              <button className="btn-share" onClick={() => setShowShare(true)}>Share</button>
+              <button className="btn-delete" onClick={handleDelete}>Delete</button>
+            </>
+          )}
+          {!isOwner && <span className="badge badge-shared">Shared with you</span>}
+        </div>
+      </div>
+      <Toolbar editorRef={editorRef} readOnly={!isOwner} />
+      <div className="editor-wrap">
+        <div className="editor">
+          <div ref={editorRef} className="editor-content" contentEditable={isOwner}
+            suppressContentEditableWarning
+            onInput={scheduleSave}
+            onKeyDown={e => {
+              if (e.key === 's' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                clearTimeout(saveTimer.current);
+                saveDoc();
+              }
+            }}
+          />
+        </div>
+      </div>
+      {showShare && (
+        <ShareModal doc={doc} token={token}
+          onClose={() => setShowShare(false)}
+          onUpdate={updated => { onDocUpdate(updated); }} />
+      )}
+    </>
+  );
+}
+
+// ── Upload Modal ──────────────────────────────────────────────────────────────
+function UploadModal({ token, onClose, onCreated }) {
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
+
+  async function handleFile(file) {
+    if (!file) return;
+    setLoading(true); setError('');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const doc = await api('/api/upload', { method: 'POST', body: fd }, token);
+      onCreated(doc);
+    } catch (e) { setError(e.message); setLoading(false); }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-title">Upload file</div>
+        <p style={{fontSize:13,color:'var(--text2)',marginBottom:16}}>
+          Supported formats: <strong>.txt</strong> and <strong>.md</strong> (max 5MB). 
+          The file will be imported as a new editable document.
+        </p>
+        <div className="upload-zone" onClick={() => inputRef.current?.click()}
+          onDragOver={e => e.preventDefault()}
+          onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); }}>
+          {loading ? '⏳ Importing…' : '📂 Click or drag a .txt or .md file here'}
+        </div>
+        <input ref={inputRef} type="file" accept=".txt,.md" style={{display:'none'}}
+          onChange={e => handleFile(e.target.files[0])} />
+        {error && <div className="modal-error" style={{marginTop:10}}>{error}</div>}
+        <div className="modal-actions">
+          <button className="btn-cancel" onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('ajaia_token') || '');
+  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('ajaia_user') || 'null'); } catch { return null; } });
+  const [docs, setDocs] = useState({ owned: [], shared: [] });
+  const [activeDoc, setActiveDoc] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [showUpload, setShowUpload] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  function showToast(msg, type = 'success') {
+    setToast({ msg, type, id: Date.now() });
+  }
+
+  async function loadDocs() {
+    try {
+      const data = await api('/api/documents', {}, token);
+      setDocs(data);
+    } catch (e) { if (e.message.includes('token')) logout(); }
+  }
+
+  useEffect(() => {
+    if (token) loadDocs();
+  }, [token]);
+
+  async function handleLogin() {
+    setLoginLoading(true); setLoginError('');
+    try {
+      const data = await api('/api/auth/login', { method: 'POST', body: { email: loginEmail } });
+      localStorage.setItem('ajaia_token', data.token);
+      localStorage.setItem('ajaia_user', JSON.stringify(data.user));
+      setToken(data.token);
+      setUser(data.user);
+    } catch (e) { setLoginError(e.message); }
+    finally { setLoginLoading(false); }
+  }
+
+  function logout() {
+    localStorage.removeItem('ajaia_token');
+    localStorage.removeItem('ajaia_user');
+    setToken(''); setUser(null); setDocs({ owned: [], shared: [] }); setActiveDoc(null);
+  }
+
+  async function createDoc() {
+    try {
+      const doc = await api('/api/documents', { method: 'POST', body: { title: 'Untitled' } }, token);
+      setDocs(d => ({ ...d, owned: [doc, ...d.owned] }));
+      openDoc(doc.id);
+      showToast('Document created');
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  async function openDoc(id) {
+    try {
+      const doc = await api(`/api/documents/${id}`, {}, token);
+      setActiveDoc(doc);
+    } catch (e) { showToast(e.message, 'error'); }
+  }
+
+  function handleDocUpdate(updated, deleted = false) {
+    if (deleted) {
+      setDocs(d => ({ ...d, owned: d.owned.filter(x => x.id !== activeDoc?.id) }));
+      setActiveDoc(null);
+      showToast('Document deleted');
+      return;
+    }
+    setActiveDoc(updated);
+    setDocs(d => ({
+      owned: d.owned.map(x => x.id === updated.id ? { ...x, title: updated.title, updated_at: updated.updated_at } : x),
+      shared: d.shared.map(x => x.id === updated.id ? { ...x, title: updated.title, updated_at: updated.updated_at } : x),
+    }));
+  }
+
+  function handleUploadCreated(doc) {
+    setDocs(d => ({ ...d, owned: [doc, ...d.owned] }));
+    setShowUpload(false);
+    openDoc(doc.id);
+    showToast('File imported as new document');
+  }
+
+  function fmtDate(s) {
+    const d = new Date(s + ' UTC');
+    const now = new Date();
+    const diff = now - d;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+    if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago';
+    return d.toLocaleDateString();
+  }
+
+  if (!token || !user) {
+    return (
+      <div className="auth-wrap">
+        <div className="auth-card">
+          <div className="auth-logo">AjaiaDocs</div>
+          <div className="auth-sub">Collaborative document editor</div>
+          <label className="auth-label">Email address</label>
+          <input className="auth-input" type="email" placeholder="you@example.com"
+            value={loginEmail} onChange={e => setLoginEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()} autoFocus />
+          {loginError && <div className="auth-error">{loginError}</div>}
+          <button className="auth-btn" onClick={handleLogin} disabled={loginLoading}>
+            {loginLoading ? 'Signing in…' : 'Sign in'}
+          </button>
+          <div className="auth-hints">
+            <strong>Demo accounts (no password needed)</strong>
+            alice@test.com · bob@test.com · carol@test.com
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <div className="sidebar-logo">AjaiaDocs</div>
+          <div className="sidebar-user">👤 {user.name}</div>
+        </div>
+        <div className="sidebar-actions">
+          <button className="btn-new" onClick={createDoc}>
+            <span style={{fontSize:16}}>+</span> New
+          </button>
+          <button className="btn-upload" title="Upload .txt or .md file" onClick={() => setShowUpload(true)}>
+            ↑ Upload
+          </button>
+        </div>
+        <div className="sidebar-scroll">
+          {docs.owned.length > 0 && (
+            <>
+              <div className="doc-section-label">My documents</div>
+              {docs.owned.map(d => (
+                <div key={d.id} className={`doc-item${activeDoc?.id===d.id?' active':''}`} onClick={() => openDoc(d.id)}>
+                  <span className="doc-item-icon">📄</span>
+                  <div className="doc-item-info">
+                    <div className="doc-item-title">{d.title || 'Untitled'}</div>
+                    <div className="doc-item-meta">{fmtDate(d.updated_at)}</div>
+                  </div>
+                  <span className="badge badge-owned">Mine</span>
+                </div>
+              ))}
+            </>
+          )}
+          {docs.shared.length > 0 && (
+            <>
+              <div className="doc-section-label">Shared with me</div>
+              {docs.shared.map(d => (
+                <div key={d.id} className={`doc-item${activeDoc?.id===d.id?' active':''}`} onClick={() => openDoc(d.id)}>
+                  <span className="doc-item-icon">📋</span>
+                  <div className="doc-item-info">
+                    <div className="doc-item-title">{d.title || 'Untitled'}</div>
+                    <div className="doc-item-meta">{d.owner_name || d.owner_email}</div>
+                  </div>
+                  <span className="badge badge-shared">Shared</span>
+                </div>
+              ))}
+            </>
+          )}
+          {docs.owned.length === 0 && docs.shared.length === 0 && (
+            <div style={{padding:'20px 8px',color:'var(--text3)',fontSize:13}}>
+              No documents yet. Click + New to create one.
+            </div>
+          )}
+        </div>
+        <div className="sidebar-footer">
+          <button className="btn-logout" onClick={logout}>Sign out</button>
+        </div>
+      </aside>
+
+      <main className="main">
+        {activeDoc ? (
+          <Editor key={activeDoc.id} doc={activeDoc} token={token}
+            onDocUpdate={handleDocUpdate} onToast={showToast} />
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">📝</div>
+            <div className="empty-title">Select or create a document</div>
+            <div className="empty-sub">Use the sidebar to open an existing doc, or click + New</div>
+          </div>
+        )}
+      </main>
+
+      {showUpload && (
+        <UploadModal token={token} onClose={() => setShowUpload(false)} onCreated={handleUploadCreated} />
+      )}
+
+      {toast && <Toast key={toast.id} msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
